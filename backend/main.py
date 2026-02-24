@@ -8,6 +8,7 @@ from io import BytesIO
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
@@ -39,6 +40,21 @@ app = FastAPI(
     description="RAG-based API for regulatory compliance queries",
     version="0.1.0",
     lifespan=lifespan,
+)
+
+# CORS configuration - allow frontend origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://reg-compliance-chatbot.vercel.app",
+        "https://reg-compliance-chatbot.netlify.app",
+        "*",  # Allow all origins for hackathon demo
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
