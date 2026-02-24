@@ -23,7 +23,6 @@ from llama_index.core import (
 
 from RAGSystem import RAGSystem
 from config import config
-from models import HealthResponse, QueryRequest, QueryResponse, UploadResponse
 
 rag_system = RAGSystem()
 
