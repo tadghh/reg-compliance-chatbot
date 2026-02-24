@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Plus, X, Send, Loader2, Shield, ChevronDown } from "lucide-react";
+import { Plus, X, Send, Loader2, Shield, ChevronDown, Moon, Sun } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import DemoQuestionsPanel from "@/components/DemoQuestionsPanel";
-import MessageBubble, { type ChatMessage } from "@/components/MessageBubble";
+import DemoQuestionsPanel from "./DemoQuestionsPanel";
+import MessageBubble, { type ChatMessage } from "./MessageBubble";
 import { apiClient, type Jurisdiction } from "@/lib/api-client";
 
 interface Conversation {
@@ -76,12 +76,14 @@ const JURISDICTIONS: { value: Jurisdiction; label: string }[] = [
 
 let nextId = 2;
 const CHAT_STATE_STORAGE_KEY = "regubot-chat-state-v1";
+const THEME_STORAGE_KEY = "regubot-theme-v1";
 const DEFAULT_CONVERSATION: Conversation = {
   id: "1",
   name: "Conversation 1",
   messages: [],
   jurisdiction: "federal",
 };
+type ThemeMode = "light" | "dark";
 
 function buildFallbackSourceUrl(rawSource: string, jurisdiction: Jurisdiction): string {
   const query = encodeURIComponent(rawSource);
@@ -198,6 +200,17 @@ function loadPersistedState(): PersistedChatState {
   }
 }
 
+function getInitialTheme(): ThemeMode {
+  try {
+    const saved = localStorage.getItem(THEME_STORAGE_KEY);
+    if (saved === "dark" || saved === "light") {
+      return saved;
+    }
+  } catch {}
+
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
 const ChatPage = () => {
   const initialState = loadPersistedState();
   const [conversations, setConversations] = useState<Conversation[]>(
@@ -205,6 +218,7 @@ const ChatPage = () => {
   );
   const [activeConvId, setActiveConvId] = useState(initialState.activeConvId);
   const [inputValue, setInputValue] = useState(initialState.inputValue);
+  const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
   const [isLoading, setIsLoading] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -235,6 +249,11 @@ const ChatPage = () => {
       } satisfies PersistedChatState),
     );
   }, [conversations, activeConvId, inputValue]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+  }, [theme]);
 
   const addConversation = () => {
     const id = String(nextId++);
@@ -366,6 +385,16 @@ const ChatPage = () => {
             </select>
             <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           </div>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-9 w-9 rounded-lg"
+            onClick={() => setTheme((previous) => (previous === "dark" ? "light" : "dark"))}
+            aria-label="Toggle theme"
+          >
+            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </Button>
         </div>
       </header>
 
