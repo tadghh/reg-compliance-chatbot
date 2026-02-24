@@ -477,6 +477,37 @@ Search-optimized version of the query:
                 "relevant_documents": web_results,
             }
 
+        # No relevant nodes from the corpus. If we still have a conversation
+        # history, fall back to answering from the chat history alone instead
+        # of immediately returning "not in corpus". This covers questions like
+        # "what did you say previously?" that are about the conversation rather
+        # than external documents.
+        if not source_nodes and messages:
+            history_only_context = (
+                "No external regulatory documents were retrieved as relevant for this\n"
+                "specific question. You may answer using ONLY the conversation history\n"
+                "above and general reasoning about that history, but you MUST NOT invent\n"
+                "or assume new regulatory facts that do not appear in the context.\n"
+            )
+
+            answer = self._generate_answer(
+                query_type=classified.query_type,
+                original_query=query_text,
+                rewritten_query=classified.rewritten_query,
+                context=history_only_context,
+                jurisdiction=jurisdiction,
+                messages=messages,
+            )
+
+            web_results = self.search_web_for_documents(query_text)
+
+            return {
+                "answer": answer,
+                "sources": [],
+                "nodes_retrieved": 0,
+                "relevant_documents": web_results,
+            }
+
         if not source_nodes:
             return {
                 "answer": (

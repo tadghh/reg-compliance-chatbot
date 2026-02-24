@@ -28,6 +28,111 @@ const JURISDICTIONS: { value: Jurisdiction; label: string }[] = [
 
 let nextId = 2;
 
+const STORAGE_KEY = "compliance-chatpage-conversations-v1";
+const ACTIVE_CONVERSATION_KEY = "compliance-chatpage-active-conversation-v1";
+
+function truncateTitle(value: string): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (compact.length <= 42) {
+    return compact;
+  }
+  return `${compact.slice(0, 39)}...`;
+}
+
+function normalizeMessage(value: unknown): ChatMessage | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const role = record.role === "user" || record.role === "assistant" ? record.role : null;
+  const content =
+    typeof record.content === "string"
+      ? record.content
+      : typeof record.text === "string"
+        ? record.text
+        : null;
+
+  if (!role || !content) {
+    return null;
+  }
+
+  return {
+    role,
+    content,
+    jurisdiction: typeof record.jurisdiction === "string" ? record.jurisdiction : undefined,
+    sources: Array.isArray(record.sources) ? (record.sources as any) : undefined,
+  };
+}
+
+function loadConversations(): Conversation[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      return [{ id: "1", name: "New conversation", messages: [], jurisdiction: "federal" }];
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      return [{ id: "1", name: "New conversation", messages: [], jurisdiction: "federal" }];
+    }
+
+    const normalized = parsed.map((value: any, index: number): Conversation => {
+      const messagesRaw = Array.isArray(value?.messages) ? value.messages : [];
+      const messages = messagesRaw
+        .map((message: unknown) => normalizeMessage(message))
+        .filter((message): message is ChatMessage => message !== null);
+
+      const fallbackNameFromMessages = (() => {
+        const firstUser = messages.find((message) => message.role === "user");
+        const base = firstUser?.content ?? messages[0]?.content ?? "";
+        return base ? truncateTitle(base) : `Conversation ${index + 1}`;
+      })();
+
+      const nameCandidate =
+        typeof value?.name === "string"
+          ? value.name
+          : typeof value?.title === "string"
+            ? value.title
+            : "";
+
+      const name =
+        nameCandidate.trim() && !nameCandidate.startsWith("Conversation ")
+          ? nameCandidate.trim()
+          : fallbackNameFromMessages;
+
+      const jurisdiction =
+        value?.jurisdiction === "federal" || value?.jurisdiction === "province"
+          ? value.jurisdiction
+          : "federal";
+
+      return {
+        id: typeof value?.id === "string" ? value.id : String(index + 1),
+        name,
+        messages,
+        jurisdiction,
+      };
+    });
+
+    const maxNumericId = normalized
+      .map((conversation) => Number.parseInt(conversation.id, 10))
+      .filter((value) => Number.isFinite(value))
+      .reduce((max, value) => Math.max(max, value), 1);
+    nextId = Math.max(2, maxNumericId + 1);
+
+    return normalized;
+  } catch {
+    return [{ id: "1", name: "New conversation", messages: [], jurisdiction: "federal" }];
+  }
+}
+
+function saveConversations(conversations: Conversation[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
+  } catch {
+    // Ignore quota / private mode errors
+  }
+}
+
 function buildFallbackSourceUrl(rawSource: string, jurisdiction: Jurisdiction): string {
   const query = encodeURIComponent(rawSource);
   if (jurisdiction === "federal") {
@@ -72,16 +177,20 @@ function parseSource(rawSource: unknown, jurisdiction: Jurisdiction) {
 }
 
 const ChatPage = () => {
-  const [conversations, setConversations] = useState<Conversation[]>([
-    { id: "1", name: "Conversation 1", messages: [], jurisdiction: "federal" },
-  ]);
-  const [activeConvId, setActiveConvId] = useState("1");
+  const [conversations, setConversations] = useState<Conversation[]>(() => loadConversations());
+  const [activeConvId, setActiveConvId] = useState(() => {
+    const initial = loadConversations();
+    const saved = localStorage.getItem(ACTIVE_CONVERSATION_KEY);
+    return saved && initial.some((conversation) => conversation.id === saved)
+      ? saved
+      : initial[0]?.id ?? "1";
+  });
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const activeConv = conversations.find((c) => c.id === activeConvId)!;
+  const activeConv = conversations.find((c) => c.id === activeConvId) ?? conversations[0];
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -91,11 +200,21 @@ const ChatPage = () => {
     scrollToBottom();
   }, [activeConv?.messages.length, scrollToBottom]);
 
+  useEffect(() => {
+    saveConversations(conversations);
+  }, [conversations]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ACTIVE_CONVERSATION_KEY, activeConvId);
+    } catch {}
+  }, [activeConvId]);
+
   const addConversation = () => {
     const id = String(nextId++);
     const newConv: Conversation = {
       id,
-      name: `Conversation ${id}`,
+      name: "New conversation",
       messages: [],
       jurisdiction: "federal",
     };
@@ -122,6 +241,8 @@ const ChatPage = () => {
     const content = text || inputValue.trim();
     if (!content || isLoading) return;
 
+    if (!activeConv) return;
+
     const jurisdictionLabel = activeConv.jurisdiction === "province" ? "Manitoba" : "Federal";
     const userMessage: ChatMessage = {
       role: "user",
@@ -130,9 +251,25 @@ const ChatPage = () => {
       sources: [],
     };
 
+    const historyPayload = [...activeConv.messages, userMessage]
+      .slice(-20)
+      .map((message) => ({
+        role: message.role,
+        content: message.content,
+      }));
+
     setConversations((prev) =>
       prev.map((c) =>
-        c.id === activeConvId ? { ...c, messages: [...c.messages, userMessage] } : c,
+        c.id === activeConvId
+          ? {
+              ...c,
+              name:
+                c.messages.length === 0 && (c.name === "New conversation" || c.name.startsWith("Conversation "))
+                  ? truncateTitle(content)
+                  : c.name,
+              messages: [...c.messages, userMessage],
+            }
+          : c,
       ),
     );
     setInputValue("");
@@ -143,6 +280,7 @@ const ChatPage = () => {
         query: content,
         top_k: 8,
         jurisdiction: activeConv.jurisdiction,
+        messages: historyPayload,
       });
 
       const assistantMessage: ChatMessage = {
