@@ -140,7 +140,7 @@ class RAGSystem:
             )
         else:
             # Insert into existing index
-            self.index.insert_documents(documents, show_progress=True)
+            self.index.insert_nodes(documents, show_progress=True)
 
         return {
             "status": "success",
