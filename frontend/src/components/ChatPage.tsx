@@ -13,6 +13,12 @@ interface Conversation {
   jurisdiction: Jurisdiction;
 }
 
+type PersistedChatState = {
+  conversations: Conversation[];
+  activeConvId: string;
+  inputValue: string;
+};
+
 const DEMO_QUESTIONS = [
   { text: "Who is eligible for a Design Canada Scholarship and what is it for?" },
   {
@@ -69,6 +75,13 @@ const JURISDICTIONS: { value: Jurisdiction; label: string }[] = [
 ];
 
 let nextId = 2;
+const CHAT_STATE_STORAGE_KEY = "regubot-chat-state-v1";
+const DEFAULT_CONVERSATION: Conversation = {
+  id: "1",
+  name: "Conversation 1",
+  messages: [],
+  jurisdiction: "federal",
+};
 
 function buildFallbackSourceUrl(rawSource: string, jurisdiction: Jurisdiction): string {
   const query = encodeURIComponent(rawSource);
@@ -138,17 +151,65 @@ function parseRelevantDocument(rawDoc: unknown): { title: string; url: string } 
   return { title, url };
 }
 
+function getNextConversationId(conversations: Conversation[]): number {
+  const maxId = conversations.reduce((max, conversation) => {
+    const parsed = Number.parseInt(conversation.id, 10);
+    if (Number.isNaN(parsed)) {
+      return max;
+    }
+    return Math.max(max, parsed);
+  }, 0);
+  return maxId + 1;
+}
+
+function loadPersistedState(): PersistedChatState {
+  try {
+    const raw = localStorage.getItem(CHAT_STATE_STORAGE_KEY);
+    if (!raw) {
+      return {
+        conversations: [DEFAULT_CONVERSATION],
+        activeConvId: DEFAULT_CONVERSATION.id,
+        inputValue: "",
+      };
+    }
+
+    const parsed = JSON.parse(raw) as Partial<PersistedChatState>;
+    const persistedConversations = Array.isArray(parsed.conversations)
+      ? parsed.conversations
+      : [];
+
+    const conversations =
+      persistedConversations.length > 0 ? persistedConversations : [DEFAULT_CONVERSATION];
+    const activeConvId =
+      typeof parsed.activeConvId === "string" &&
+      conversations.some((conversation) => conversation.id === parsed.activeConvId)
+        ? parsed.activeConvId
+        : conversations[0].id;
+    const inputValue = typeof parsed.inputValue === "string" ? parsed.inputValue : "";
+
+    nextId = Math.max(nextId, getNextConversationId(conversations));
+    return { conversations, activeConvId, inputValue };
+  } catch {
+    return {
+      conversations: [DEFAULT_CONVERSATION],
+      activeConvId: DEFAULT_CONVERSATION.id,
+      inputValue: "",
+    };
+  }
+}
+
 const ChatPage = () => {
-  const [conversations, setConversations] = useState<Conversation[]>([
-    { id: "1", name: "Conversation 1", messages: [], jurisdiction: "federal" },
-  ]);
-  const [activeConvId, setActiveConvId] = useState("1");
-  const [inputValue, setInputValue] = useState("");
+  const initialState = loadPersistedState();
+  const [conversations, setConversations] = useState<Conversation[]>(
+    initialState.conversations,
+  );
+  const [activeConvId, setActiveConvId] = useState(initialState.activeConvId);
+  const [inputValue, setInputValue] = useState(initialState.inputValue);
   const [isLoading, setIsLoading] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const activeConv = conversations.find((c) => c.id === activeConvId)!;
+  const activeConv = conversations.find((conversation) => conversation.id === activeConvId);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -157,6 +218,23 @@ const ChatPage = () => {
   useEffect(() => {
     scrollToBottom();
   }, [activeConv?.messages.length, scrollToBottom]);
+
+  useEffect(() => {
+    if (!activeConv && conversations.length > 0) {
+      setActiveConvId(conversations[0].id);
+    }
+  }, [activeConv, conversations]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      CHAT_STATE_STORAGE_KEY,
+      JSON.stringify({
+        conversations,
+        activeConvId,
+        inputValue,
+      } satisfies PersistedChatState),
+    );
+  }, [conversations, activeConvId, inputValue]);
 
   const addConversation = () => {
     const id = String(nextId++);
@@ -186,6 +264,8 @@ const ChatPage = () => {
   };
 
   const sendMessage = async (text?: string) => {
+    if (!activeConv) return;
+
     const content = text || inputValue.trim();
     if (!content || isLoading) return;
 
@@ -274,7 +354,7 @@ const ChatPage = () => {
         <div className="flex items-center gap-2">
           <div className="relative">
             <select
-              value={activeConv.jurisdiction}
+              value={activeConv?.jurisdiction ?? "federal"}
               onChange={(event) => setJurisdiction(event.target.value as Jurisdiction)}
               className="appearance-none rounded-md border border-border bg-card py-1.5 pl-3 pr-8 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             >
@@ -326,7 +406,7 @@ const ChatPage = () => {
 
           <div className="flex-1 overflow-y-auto px-4 py-6 lg:px-8">
             <div className="mx-auto max-w-3xl space-y-5">
-              {activeConv.messages.length === 0 ? (
+              {!activeConv || activeConv.messages.length === 0 ? (
                 <div className="flex h-full items-center justify-center py-20">
                   <div className="space-y-3 text-center">
                     <Shield className="mx-auto h-10 w-10 text-muted-foreground/40" />
