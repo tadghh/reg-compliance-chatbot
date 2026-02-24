@@ -14,8 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
-
-type Jurisdiction = "federal" | "province";
+import { apiClient, type Jurisdiction } from "@/lib/api-client";
 
 type Source = {
   title: string;
@@ -29,13 +28,6 @@ type ChatMessage = {
   sources: Source[];
   jurisdiction?: Jurisdiction;
 };
-
-type QueryResponse = {
-  answer?: string;
-  sources?: unknown[];
-};
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 const demoQuestions = [
   "What federal and Manitoba permits are typically required to start a metal fabrication plant in Manitoba?",
@@ -138,21 +130,11 @@ function App() {
     setLoading(true);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/query`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query: userMessage,
-          top_k: 8,
-          jurisdiction,
-        }),
+      const data = await apiClient.query({
+        query: userMessage,
+        top_k: 8,
+        jurisdiction,
       });
-
-      if (!response.ok) {
-        throw new Error(`Request failed (${response.status})`);
-      }
-
-      const data = (await response.json()) as QueryResponse;
       const parsedSources = (data.sources ?? [])
         .map((item) => parseSource(item, jurisdiction))
         .filter((item): item is Source => item !== null);
