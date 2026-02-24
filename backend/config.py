@@ -1,4 +1,4 @@
-from fsspec.spec import os
+import os
 
 
 class Config:

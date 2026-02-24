@@ -60,6 +60,7 @@ class RAGSystem:
             model=config.openai_model,
             temperature=0.0,
             api_key=config.openai_api_key or None,
+            max_tokens=4096,  # Limit response size
         )
         Settings.embed_model = OpenAIEmbedding(
             model=config.embedding_model,
@@ -502,6 +503,11 @@ Search-optimized version of the query:
             )
 
         context_str = "\n\n".join(context_chunks)
+
+        # Limit context to 30k tokens (~120k characters)
+        MAX_CONTEXT_CHARS = 30_000 * 4  # Rough estimate: 4 chars per token
+        if len(context_str) > MAX_CONTEXT_CHARS:
+            context_str = context_str[:MAX_CONTEXT_CHARS] + "\n\n[truncated...]"
 
         answer = self._generate_answer(
             query_type=classified.query_type,
