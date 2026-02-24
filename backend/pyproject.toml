@@ -1,0 +1,27 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "RAG-based compliance chatbot backend"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.133.0",
+    "uvicorn>=0.32.0",
+    "qdrant-client>=1.17.0",
+    "openai>=1.66.0",
+    "llama-index>=0.12.0",
+    "llama-index-vector-stores-qdrant",
+    "llama-index-embeddings-openai>=0.2.0",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.10.0",
+    "dotenv>=0.9.9",
+    "python-multipart>=0.0.22",
+    "pypdf>=6.7.2",
+    "tiktoken>=0.8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+]
