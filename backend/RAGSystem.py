@@ -130,7 +130,11 @@ class RAGSystem:
             "collection": config.collection_name,
         }
 
-    def _classify_and_rewrite(self, user_query: str) -> ClassifiedQuery:
+    def _classify_and_rewrite(
+        self,
+        user_query: str,
+        jurisdiction: str | None = None,
+    ) -> ClassifiedQuery:
         """
         First prompt in the chain: classify intent and rewrite query for retrieval.
         """
@@ -150,7 +154,15 @@ Return STRICT JSON with keys:
 
 Do not include explanations or extra text.
 """
-        prompt = f"{system_prompt}\n\nUSER QUERY:\n{user_query}\n\nJSON:"
+        jurisdiction_hint = (
+            f"\nJurisdiction context: {jurisdiction}."
+            if jurisdiction
+            else "\nJurisdiction context: not specified."
+        )
+        prompt = (
+            f"{system_prompt}\n\nUSER QUERY:\n{user_query}"
+            f"{jurisdiction_hint}\n\nJSON:"
+        )
         raw = Settings.llm.complete(prompt)
         text = raw.text if hasattr(raw, "text") else str(raw)
 
@@ -176,6 +188,8 @@ Do not include explanations or extra text.
         original_query: str,
         rewritten_query: str,
         context: str,
+        jurisdiction: str | None = None,
+        messages: list[dict[str, str]] | None = None,
     ) -> str:
         """
         Final prompt in the chain: turn retrieved context into a structured answer.
@@ -223,12 +237,34 @@ staying grounded in the context. Use short paragraphs and avoid unnecessary
 legal jargon, but do not oversimplify regulatory requirements.
 """
 
+        jurisdiction_info = (
+            f"\nJurisdiction (if provided): {jurisdiction}"
+            if jurisdiction
+            else ""
+        )
+
+        history_block = ""
+        if messages:
+            lines: list[str] = []
+            for message in messages:
+                role = (message.get("role") or "").strip().lower()
+                content = (message.get("content") or "").strip()
+                if not content:
+                    continue
+                prefix = "User" if role == "user" else "Assistant"
+                lines.append(f"{prefix}: {content}")
+
+            if lines:
+                history_block = "Conversation so far:\n" + "\n".join(lines) + "\n\n"
+
         user_prompt = f"""
-User's original question:
+{history_block}User's original question:
 {original_query}
 
 Rewritten query for retrieval:
 {rewritten_query}
+
+{jurisdiction_info}
 
 Relevant context chunks (with numbered citations):
 {context}
@@ -375,7 +411,13 @@ Search-optimized version of the query:
             "department, or the instructions that accompany the form."
         )
 
-    def query(self, query_text: str, top_k: int = 5) -> dict[str, Any]:
+    def query(
+        self,
+        query_text: str,
+        top_k: int = 5,
+        jurisdiction: str | None = None,
+        messages: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
         """
         Query the RAG system using a prompt-chained flow.
 
@@ -384,6 +426,11 @@ Search-optimized version of the query:
         2) Vectorize rewritten query → Qdrant search → retrieve nodes.
         3) Use a specialized prompt (based on query type) to generate answer.
         4) Run a web search for additional relevant documents/forms.
+
+        The optional `jurisdiction` hint is used to steer the LLM prompts
+        (e.g., "federal" vs "province") but does not yet apply vector-store
+        filters; this keeps behavior consistent when documents lack
+        jurisdiction metadata.
         """
         self.ensure_initialized()
 
@@ -393,7 +440,10 @@ Search-optimized version of the query:
                 detail="No documents indexed yet. Upload documents first.",
             )
 
-        classified = self._classify_and_rewrite(query_text)
+        classified = self._classify_and_rewrite(
+            user_query=query_text,
+            jurisdiction=jurisdiction,
+        )
 
         query_engine = self.index.as_query_engine(
             similarity_top_k=top_k,
@@ -447,6 +497,8 @@ Search-optimized version of the query:
             original_query=query_text,
             rewritten_query=classified.rewritten_query,
             context=context_str,
+            jurisdiction=jurisdiction,
+            messages=messages,
         )
 
         web_results = self.search_web_for_documents(query_text)

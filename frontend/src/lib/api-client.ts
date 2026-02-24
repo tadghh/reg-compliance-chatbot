@@ -1,9 +1,15 @@
 export type Jurisdiction = "federal" | "province";
 
+export type ChatMessagePayload = {
+    role: "user" | "assistant";
+    content: string;
+};
+
 export type QueryRequest = {
     query: string;
     top_k?: number;
     jurisdiction?: Jurisdiction;
+    messages?: ChatMessagePayload[];
 };
 
 export type WebSearchResult = {

@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState, type ReactNode } from "react";
+import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Copy, ExternalLink, Loader2, Plus, Send, X } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -115,6 +115,66 @@ function createConversation(number: number): Conversation {
 
 const initialConversation = createConversation(1);
 
+const STORAGE_KEY = "compliance-chat-conversations-v1";
+
+function loadConversations(): Conversation[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      return [initialConversation];
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      return [initialConversation];
+    }
+
+    return parsed.map((value: any, index: number): Conversation => {
+      const messages = Array.isArray(value.messages) ? value.messages : [];
+
+      let title: string;
+      if (
+        typeof value.title === "string" &&
+        value.title.trim().length > 0 &&
+        !value.title.startsWith("Conversation ")
+      ) {
+        title = value.title.trim();
+      } else if (messages.length > 0) {
+        const firstUserMessage = messages.find(
+          (message: any) => message?.role === "user" && typeof message.text === "string",
+        );
+        const sourceText =
+          (firstUserMessage?.text as string | undefined) ??
+          (typeof messages[0].text === "string" ? messages[0].text : "");
+        title = sourceText ? truncateTitle(sourceText) : `Conversation ${index + 1}`;
+      } else {
+        title = `Conversation ${index + 1}`;
+      }
+
+      return {
+        id: typeof value.id === "string" ? value.id : crypto.randomUUID(),
+        title,
+        jurisdiction:
+          value.jurisdiction === "federal" || value.jurisdiction === "province"
+            ? value.jurisdiction
+            : "federal",
+        input: typeof value.input === "string" ? value.input : "",
+        messages,
+      };
+    });
+  } catch {
+    return [initialConversation];
+  }
+}
+
+function saveConversations(conversations: Conversation[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
+  } catch {
+    // Ignore storage errors (e.g., private mode, quota)
+  }
+}
+
 const markdownComponents: Components = {
   p: ({ children }) => (
     <p className="mb-3 last:mb-0">{children}</p>
@@ -158,15 +218,23 @@ const markdownComponents: Components = {
 };
 
 function App() {
-  const [conversations, setConversations] = useState<Conversation[]>([
-    initialConversation,
-  ]);
-  const [activeConversationId, setActiveConversationId] = useState<string>(
-    initialConversation.id,
+  const [conversations, setConversations] = useState<Conversation[]>(() =>
+    loadConversations(),
   );
-  const [nextConversationNumber, setNextConversationNumber] = useState(2);
+  const [activeConversationId, setActiveConversationId] = useState<string>(() => {
+    const initial = loadConversations();
+    return initial[0]?.id ?? initialConversation.id;
+  });
+  const [nextConversationNumber, setNextConversationNumber] = useState<number>(() => {
+    const initial = loadConversations();
+    return initial.length + 1;
+  });
   const [loading, setLoading] = useState(false);
   const [copiedQuestion, setCopiedQuestion] = useState<string | null>(null);
+
+  useEffect(() => {
+    saveConversations(conversations);
+  }, [conversations]);
 
   const activeConversation = useMemo(() => {
     return (
@@ -255,6 +323,13 @@ function App() {
       sources: [],
       jurisdiction,
     };
+
+    const historyPayload = [...activeConversation.messages, userMessageEntry]
+      .slice(-20)
+      .map((message) => ({
+        role: message.role,
+        content: message.text,
+      }));
     const updatedTitle =
       activeConversation.messages.length === 0
         ? truncateTitle(userMessage)
@@ -273,6 +348,7 @@ function App() {
         query: userMessage,
         top_k: 8,
         jurisdiction,
+        messages: historyPayload,
       });
       const parsedSources = (data.sources ?? [])
         .map((item) => parseSource(item, jurisdiction))
