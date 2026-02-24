@@ -445,15 +445,25 @@ Search-optimized version of the query:
             jurisdiction=jurisdiction,
         )
 
+        # Minimum similarity score threshold - nodes below this are considered irrelevant
+        SIMILARITY_THRESHOLD = 0.35
+
         query_engine = self.index.as_query_engine(
             similarity_top_k=top_k,
             response_mode="no_text",
         )
 
         retrieval_result = query_engine.query(classified.rewritten_query)
-        source_nodes = list(getattr(retrieval_result, "source_nodes", []) or [])
+        raw_nodes = list(getattr(retrieval_result, "source_nodes", []) or [])
 
-        # No local context at all – special-case permit guidance to fall back to web search.
+        # Filter nodes by similarity score - reject low-quality matches
+        source_nodes = []
+        for node in raw_nodes:
+            score = getattr(node, "score", None)
+            if score is not None and score >= SIMILARITY_THRESHOLD:
+                source_nodes.append(node)
+
+        # No relevant nodes after filtering - special-case permit guidance to fall back to web search
         if not source_nodes and classified.query_type == QueryType.PERMIT_GUIDANCE:
             web_results = self.search_web_for_documents(query_text)
             answer = self._generate_permit_guidance_from_web(
@@ -485,9 +495,10 @@ Search-optimized version of the query:
         for idx, node in enumerate(source_nodes, start=1):
             metadata = node.metadata or {}
             source_name = metadata.get("file_name", "unknown")
+            score = getattr(node, "score", 0)
             sources_set.add(source_name)
             context_chunks.append(
-                f"[{idx}] Source: {source_name}\n{node.text.strip()}"
+                f"[{idx}] Source: {source_name} (relevance: {score:.2f})\n{node.text.strip()}"
             )
 
         context_str = "\n\n".join(context_chunks)
@@ -503,26 +514,9 @@ Search-optimized version of the query:
 
         web_results = self.search_web_for_documents(query_text)
 
-        # Check if the LLM indicated no relevant information was found
-        # If so, don't return misleading sources
-        no_relevant_phrases = [
-            "could not find relevant",
-            "does not contain information",
-            "no relevant material",
-            "not in the current corpus",
-            "cannot find",
-            "no information available",
-            "context does not contain",
-        ]
-        answer_lower = answer.lower()
-        has_relevant_content = not any(phrase in answer_lower for phrase in no_relevant_phrases)
-
-        # Only return sources if the answer actually uses them
-        final_sources = list(sources_set) if has_relevant_content else []
-
         return {
             "answer": answer,
-            "sources": final_sources,
+            "sources": list(sources_set),
             "nodes_retrieved": len(source_nodes),
             "relevant_documents": web_results,
         }
