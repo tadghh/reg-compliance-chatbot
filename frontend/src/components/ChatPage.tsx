@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import DemoQuestionsPanel from "@/components/DemoQuestionsPanel";
 import MessageBubble, { type ChatMessage } from "@/components/MessageBubble";
 import { apiClient, type Jurisdiction } from "@/lib/api-client";
+import shieldLogo from "@/shield-svgrepo-com.svg";
 
 interface Conversation {
   id: string;
@@ -404,7 +405,7 @@ const ChatPage = () => {
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4 lg:px-6">
         <div className="flex items-center gap-3">
           <img
-            src="/shield-svgrepo-com.svg"
+            src={shieldLogo}
             alt="Regulatory Compliance"
             className="h-8 w-auto"
           />
