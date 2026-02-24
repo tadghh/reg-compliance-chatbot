@@ -1,8 +1,8 @@
-# ComplyAI - Regulatory Compliance Chatbot
+# ComplAInce - Regulatory Compliance Chatbot
 
 Turning complex regulatory red tapes to simple conversations.
 
-**ComplyAI** is a solution developed during Southern Manitoba Technology Conference's 6-hour Hackathon for Challenge 3: Regulatory Compliance Chatbot.
+**ComplAInce** is a solution developed during Southern Manitoba Technology Conference's 6-hour Hackathon for Challenge 3: Regulatory Compliance Chatbot.
 
 ## Problem Statement
 
@@ -12,7 +12,7 @@ However, that is not a luxury businesses can afford. According to CFIB's [Canada
 
 Regulations are heavily text-based, highly specific, and constantly updated across disparate government websites, like the Continuing Consolidation of the Statutes of Manitoba, or C.C.S.M. Furthermore, regulations are never static; new laws and penalties are being introduced some unknown time in the future from now via the Accessibility for Manitobans Act. Manufacturers seek a solution with the ability to stay updated with and summarize all this abundant information, yet current solutions like ChatGPT are still prone to hallucinations and being unable to cite their sources; that which is most unacceptable when dealing with law enforcement.
 
-Seeing this, we built **ComplyAI** - a chatbot that actually knows what it's talking about, to accompany your manufacturing team in turning complex regulatory red tapes to simple conversations.
+Seeing this, we built **ComplAInce** - a chatbot that actually knows what it's talking about, to accompany your manufacturing team in turning complex regulatory red tapes to simple conversations.
 
 ## Tech Stack
 

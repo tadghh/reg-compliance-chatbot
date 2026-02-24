@@ -38,16 +38,16 @@ type QueryResponse = {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 const demoQuestions = [
-  "What federal permits are needed to transport hazardous waste across provinces?",
-  "List a startup checklist for opening a food processing facility in Ontario.",
-  "What records must employers keep for occupational health and safety compliance?",
-  "Explain the top 5 privacy obligations under federal PIPEDA for small businesses.",
-  "What are anti-money laundering reporting triggers for Canadian fintech platforms?",
-  "What environmental reporting obligations apply to manufacturing wastewater discharge?",
-  "Summarize worker classification compliance risks for contractors vs employees.",
-  "What labeling requirements apply to imported packaged foods sold in Canada?",
-  "How should a company prepare for a provincial labor inspection?",
-  "Provide a compliance roadmap for launching a telehealth service in Canada.",
+  "What federal and Manitoba permits are typically required to start a metal fabrication plant in Manitoba?",
+  "Create a Manitoba-focused compliance checklist for WHMIS training, SDS management, and hazardous product labeling in a manufacturing facility.",
+  "What records must a manufacturer keep to satisfy Manitoba workplace safety inspection requirements?",
+  "What Manitoba environmental approvals and reporting are required for air emissions and wastewater discharge from a manufacturing site?",
+  "Summarize TDG requirements for shipping dangerous goods from a Manitoba manufacturing facility to another province.",
+  "What are CEPA obligations for handling and reporting toxic substances used in a Manitoba manufacturing operation?",
+  "What machine guarding and lockout-tagout controls should be documented for a Manitoba provincial safety audit?",
+  "List key compliance steps for importing raw materials into Manitoba and meeting federal plus provincial labeling requirements.",
+  "How should a Manitoba manufacturer prepare for an unannounced provincial workplace inspection and what documents should be ready?",
+  "Provide a 90-day regulatory compliance roadmap for launching a new food manufacturing line in Manitoba.",
 ];
 
 function buildFallbackSourceUrl(rawSource: string, jurisdiction: Jurisdiction): string {
@@ -55,7 +55,7 @@ function buildFallbackSourceUrl(rawSource: string, jurisdiction: Jurisdiction): 
   if (jurisdiction === "federal") {
     return `https://laws-lois.justice.gc.ca/eng/search/search.aspx?txtS3archA11=${query}`;
   }
-  return `https://www.ontario.ca/search?search=${query}`;
+  return `https://www.gov.mb.ca/search/index.html?q=${query}`;
 }
 
 function parseSource(rawSource: unknown, jurisdiction: Jurisdiction): Source | null {
@@ -103,7 +103,7 @@ function App() {
   const placeholder = useMemo(() => {
     return jurisdiction === "federal"
       ? "Ask a federal compliance question..."
-      : "Ask a provincial compliance question...";
+      : "Ask a Manitoba compliance question...";
   }, [jurisdiction]);
 
   async function copyQuestion(question: string) {
@@ -215,7 +215,7 @@ function App() {
                   }
                 >
                   <option value="federal">Federal</option>
-                  <option value="province">Province</option>
+                  <option value="province">Manitoba (Province)</option>
                 </Select>
               </div>
             </div>
