@@ -430,12 +430,12 @@ Search-optimized version of the query:
             }
 
         context_chunks: list[str] = []
-        sources: list[str] = []
+        sources_set: set[str] = set()  # Deduplicate sources
 
         for idx, node in enumerate(source_nodes, start=1):
             metadata = node.metadata or {}
             source_name = metadata.get("file_name", "unknown")
-            sources.append(source_name)
+            sources_set.add(source_name)
             context_chunks.append(
                 f"[{idx}] Source: {source_name}\n{node.text.strip()}"
             )
@@ -451,9 +451,26 @@ Search-optimized version of the query:
 
         web_results = self.search_web_for_documents(query_text)
 
+        # Check if the LLM indicated no relevant information was found
+        # If so, don't return misleading sources
+        no_relevant_phrases = [
+            "could not find relevant",
+            "does not contain information",
+            "no relevant material",
+            "not in the current corpus",
+            "cannot find",
+            "no information available",
+            "context does not contain",
+        ]
+        answer_lower = answer.lower()
+        has_relevant_content = not any(phrase in answer_lower for phrase in no_relevant_phrases)
+
+        # Only return sources if the answer actually uses them
+        final_sources = list(sources_set) if has_relevant_content else []
+
         return {
             "answer": answer,
-            "sources": sources,
+            "sources": final_sources,
             "nodes_retrieved": len(source_nodes),
             "relevant_documents": web_results,
         }
