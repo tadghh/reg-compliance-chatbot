@@ -10,7 +10,7 @@ dependencies = [
     "qdrant-client>=1.17.0",
     "openai>=1.50.0",
     "llama-index>=0.12.0",
-    "llama-index-vector-stores-qdrant>=0.2.0",
+    "llama-index-vector-stores-qdrant",
     "llama-index-embeddings-openai>=0.2.0",
     "python-dotenv>=1.0.0",
     "pydantic>=2.10.0",
