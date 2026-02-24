@@ -42,18 +42,13 @@ const demoQuestions = [
   "Provide a 90-day regulatory compliance roadmap for launching a new food manufacturing line in Manitoba.",
 ];
 
-function buildFallbackSourceUrl(rawSource: string, jurisdiction: Jurisdiction): string {
-  const query = encodeURIComponent(rawSource);
-  if (jurisdiction === "federal") {
-    return `https://laws-lois.justice.gc.ca/eng/search/search.aspx?txtS3archA11=${query}`;
-  }
-  return `https://www.gov.mb.ca/search/index.html?q=${query}`;
-}
-
-function parseSource(rawSource: unknown, jurisdiction: Jurisdiction): Source | null {
+function parseSource(rawSource: unknown): Source | null {
   if (typeof rawSource === "string") {
     const urlMatch = rawSource.match(/https?:\/\/[^\s)]+/i);
-    const url = urlMatch?.[0] ?? buildFallbackSourceUrl(rawSource, jurisdiction);
+    const url = urlMatch?.[0];
+    if (!url) {
+      return null;
+    }
     const title = rawSource.replace(url, "").trim() || rawSource;
     return { title, url };
   }
@@ -74,10 +69,7 @@ function parseSource(rawSource: unknown, jurisdiction: Jurisdiction): Source | n
           : "Source";
 
     if (!url) {
-      return {
-        title,
-        url: buildFallbackSourceUrl(title, jurisdiction),
-      };
+      return null;
     }
     return { title, url };
   }
@@ -136,7 +128,7 @@ function App() {
         jurisdiction,
       });
       const parsedSources = (data.sources ?? [])
-        .map((item) => parseSource(item, jurisdiction))
+        .map((item) => parseSource(item))
         .filter((item): item is Source => item !== null);
 
       setMessages((prev) => [
