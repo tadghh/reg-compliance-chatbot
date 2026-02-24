@@ -14,6 +14,7 @@ dependencies = [
     "llama-index-embeddings-openai>=0.2.0",
     "python-dotenv>=1.0.0",
     "pydantic>=2.10.0",
+    "dotenv>=0.9.9",
 ]
 
 [project.optional-dependencies]
