@@ -1,5 +1,7 @@
 /backend/backend.egg-info
 backend/.env
+/backend/__pycache__
+/backend/__pycache__
 /frontend/node_modules
 /frontend/dist
 /frontend/.env
