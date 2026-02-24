@@ -223,7 +223,7 @@ const ChatPage = () => {
   const [showSidebar, setShowSidebar] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const activeConv = conversations.find((conversation) => conversation.id === activeConvId);
+  const activeConv = conversations.find((c) => c.id === activeConvId)!;
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -259,7 +259,7 @@ const ChatPage = () => {
     const id = String(nextId++);
     const newConv: Conversation = {
       id,
-      name: `Conversation ${id}`,
+      name: "New conversation",
       messages: [],
       jurisdiction: "federal",
     };
@@ -288,6 +288,8 @@ const ChatPage = () => {
     const content = text || inputValue.trim();
     if (!content || isLoading) return;
 
+    if (!activeConv) return;
+
     const jurisdictionLabel = activeConv.jurisdiction === "province" ? "Manitoba" : "Federal";
     const userMessage: ChatMessage = {
       role: "user",
@@ -296,9 +298,25 @@ const ChatPage = () => {
       sources: [],
     };
 
+    const historyPayload = [...activeConv.messages, userMessage]
+      .slice(-20)
+      .map((message) => ({
+        role: message.role,
+        content: message.content,
+      }));
+
     setConversations((prev) =>
       prev.map((c) =>
-        c.id === activeConvId ? { ...c, messages: [...c.messages, userMessage] } : c,
+        c.id === activeConvId
+          ? {
+              ...c,
+              name:
+                c.messages.length === 0 && (c.name === "New conversation" || c.name.startsWith("Conversation "))
+                  ? truncateTitle(content)
+                  : c.name,
+              messages: [...c.messages, userMessage],
+            }
+          : c,
       ),
     );
     setInputValue("");
@@ -309,6 +327,7 @@ const ChatPage = () => {
         query: content,
         top_k: 8,
         jurisdiction: activeConv.jurisdiction,
+        messages: historyPayload,
       });
 
       const assistantMessage: ChatMessage = {

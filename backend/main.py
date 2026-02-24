@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from qdrant_client import QdrantClient
 from openai import OpenAI
 from pypdf import PdfReader
+import tiktoken
 
 # Load environment variables BEFORE importing config/RAGSystem so .env values (like QDRANT_URL) are applied.
 load_dotenv()
@@ -27,6 +28,10 @@ from RAGSystem import RAGSystem
 from config import config
 
 rag_system = RAGSystem()
+
+# Pre-load a tokenizer for estimating token counts when batching uploads.
+_TOKEN_ENCODING = tiktoken.get_encoding("cl100k_base")
+_MAX_TOKENS_PER_BATCH = 30_000
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -309,13 +314,14 @@ async def upload_documents(
             "content_type": file.content_type,
         }
 
-        documents: list[Document] = []
+        # First, chunk the raw text into reasonably sized pieces by characters.
+        raw_documents: list[Document] = []
         for i in range(0, len(text_content), max_chars):
             chunk_text = text_content[i : i + max_chars]
             if not chunk_text.strip():
                 continue
 
-            documents.append(
+            raw_documents.append(
                 Document(
                     text=chunk_text,
                     metadata={
@@ -325,16 +331,71 @@ async def upload_documents(
                 )
             )
 
-        if not documents:
+        if not raw_documents:
             raise HTTPException(
                 status_code=400,
                 detail="Uploaded file produced empty chunks after processing.",
             )
 
-        # Upload to RAG system (vectorizes and stores in Qdrant)
-        result = rag_system.upload_documents(documents)
+        # Now batch those documents so that each vectorization batch stays
+        # under _MAX_TOKENS_PER_BATCH tokens (approximate, using cl100k_base).
+        def batch_by_tokens(docs: list[Document]) -> list[list[Document]]:
+            batches: list[list[Document]] = []
+            current_batch: list[Document] = []
+            current_tokens = 0
 
-        return UploadResponse(**result)
+            for doc in docs:
+                text = doc.text or ""
+                doc_tokens = len(_TOKEN_ENCODING.encode(text))
+
+                # If a single document is larger than the batch limit, put it
+                # in its own batch so it can still be processed, rather than
+                # blocking everything else.
+                if doc_tokens > _MAX_TOKENS_PER_BATCH:
+                    if current_batch:
+                        batches.append(current_batch)
+                        current_batch = []
+                        current_tokens = 0
+                    batches.append([doc])
+                    continue
+
+                # If adding this document would exceed the limit, start a new batch.
+                if current_batch and current_tokens + doc_tokens > _MAX_TOKENS_PER_BATCH:
+                    batches.append(current_batch)
+                    current_batch = []
+                    current_tokens = 0
+
+                current_batch.append(doc)
+                current_tokens += doc_tokens
+
+            if current_batch:
+                batches.append(current_batch)
+
+            return batches
+
+        token_batches = batch_by_tokens(raw_documents)
+
+        total_docs = 0
+        last_result: UploadResponse | None = None
+
+        # Upload each batch separately so that no vectorization call exceeds
+        # the configured token limit.
+        for batch in token_batches:
+            result_dict = rag_system.upload_documents(batch)
+            total_docs += result_dict.get("documents_count", len(batch))
+            last_result = UploadResponse(**result_dict)
+
+        if last_result is None:
+            raise HTTPException(
+                status_code=500,
+                detail="Unexpected error while batching documents for upload.",
+            )
+
+        return UploadResponse(
+            status=last_result.status,
+            documents_count=total_docs,
+            collection=last_result.collection,
+        )
 
     except HTTPException:
         raise
