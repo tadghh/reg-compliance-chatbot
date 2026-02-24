@@ -40,7 +40,7 @@ export class ApiClientError extends Error {
   }
 }
 
-const defaultBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "/api";
+const defaultBaseUrl = "/api";
 
 class ComplianceApiClient {
   private readonly baseUrl: string;
