@@ -5,6 +5,7 @@ RAG-based compliance chatbot backend using FastAPI, OpenAI, Qdrant, and LlamaInd
 import os
 from contextlib import asynccontextmanager
 from io import BytesIO
+from typing import Literal
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File
@@ -174,11 +175,18 @@ UPLOAD_TEST_HTML = """
 # =============================================================================
 
 
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
 class QueryRequest(BaseModel):
     """Request model for /query endpoint."""
 
     query: str
     top_k: int = 5
+    jurisdiction: str | None = None
+    messages: list[ChatMessage] | None = None
 
 
 class WebSearchResult(BaseModel):
@@ -360,6 +368,8 @@ async def query_documents(request: QueryRequest) -> QueryResponse:
         result = rag_system.query(
             query_text=request.query,
             top_k=request.top_k,
+            jurisdiction=request.jurisdiction,
+            messages=[message.model_dump() for message in (request.messages or [])] or None,
         )
 
         return QueryResponse(**result)
