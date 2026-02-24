@@ -13,12 +13,60 @@ interface Conversation {
   jurisdiction: Jurisdiction;
 }
 
+type PersistedChatState = {
+  conversations: Conversation[];
+  activeConvId: string;
+  inputValue: string;
+};
+
 const DEMO_QUESTIONS = [
-  { text: "What are the key requirements for anti-money laundering (AML) compliance in Canada?" },
-  { text: "Explain the differences between federal and provincial privacy regulations." },
-  { text: "What are the reporting obligations under FINTRAC for financial institutions?" },
-  { text: "How does Manitoba's consumer protection legislation differ from federal standards?" },
-  { text: "What are the penalties for non-compliance with environmental regulations in Manitoba?" },
+  { text: "Who is eligible for a Design Canada Scholarship and what is it for?" },
+  {
+    text: "What types of innovation projects can receive a contribution (new/improved product, process, pollution abatement, industrial design, etc.)?",
+  },
+  {
+    text: "What are the maximum contribution percentages for innovation projects in Tier Groups I, II, III, and IV?",
+  },
+  {
+    text: "Is there a minimum eligible cost threshold for innovation contributions after February 18, 1987?",
+  },
+  {
+    text: "Can I get assistance for a feasibility study or market research under the Innovation part? What percentage?",
+  },
+  {
+    text: "Can buying an existing facility that has ceased production count as \"establishing a new facility\"?",
+  },
+  {
+    text: "What are the maximum contribution rates and minimum capital cost thresholds for establishing a new facility in each Tier Group (I-IV)?",
+  },
+  {
+    text: "Can I get consultant funding (feasibility study, market research, venture capital search) for a new facility project? At what rate?",
+  },
+  {
+    text: "What kinds of modernization/expansion projects qualify (especially microelectronics, productivity improvements, etc.)?",
+  },
+  {
+    text: "What contribution percentages apply to modernization projects in Tier Group I vs. Tier Group IV?",
+  },
+  {
+    text: "Can relocating facilities qualify for assistance, and under which section?",
+  },
+  {
+    text: "What marketing activities are eligible (catalogues, advertising, trade shows, market research, etc.) and what is the maximum contribution rate?",
+  },
+  { text: "Can a municipal corporation receive marketing assistance?" },
+  {
+    text: "If I signed a contract or made a purchase before submitting my application, can I still get assistance for those costs?",
+  },
+  {
+    text: "What key information must every applicant provide about jobs, private investment leverage, unemployment in the district, pollution, etc.?",
+  },
+  {
+    text: "When does the Minister have to consult the Canada Employment and Immigration Commission before approving assistance?",
+  },
+  {
+    text: "If my project is in a Tier Group I district with high unemployment, can I still get new-facility or modernization assistance, and under what extra conditions?",
+  },
 ];
 
 const JURISDICTIONS: { value: Jurisdiction; label: string }[] = [
@@ -27,111 +75,13 @@ const JURISDICTIONS: { value: Jurisdiction; label: string }[] = [
 ];
 
 let nextId = 2;
-
-const STORAGE_KEY = "compliance-chatpage-conversations-v1";
-const ACTIVE_CONVERSATION_KEY = "compliance-chatpage-active-conversation-v1";
-
-function truncateTitle(value: string): string {
-  const compact = value.replace(/\s+/g, " ").trim();
-  if (compact.length <= 42) {
-    return compact;
-  }
-  return `${compact.slice(0, 39)}...`;
-}
-
-function normalizeMessage(value: unknown): ChatMessage | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-  const record = value as Record<string, unknown>;
-  const role = record.role === "user" || record.role === "assistant" ? record.role : null;
-  const content =
-    typeof record.content === "string"
-      ? record.content
-      : typeof record.text === "string"
-        ? record.text
-        : null;
-
-  if (!role || !content) {
-    return null;
-  }
-
-  return {
-    role,
-    content,
-    jurisdiction: typeof record.jurisdiction === "string" ? record.jurisdiction : undefined,
-    sources: Array.isArray(record.sources) ? (record.sources as any) : undefined,
-  };
-}
-
-function loadConversations(): Conversation[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return [{ id: "1", name: "New conversation", messages: [], jurisdiction: "federal" }];
-    }
-
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      return [{ id: "1", name: "New conversation", messages: [], jurisdiction: "federal" }];
-    }
-
-    const normalized = parsed.map((value: any, index: number): Conversation => {
-      const messagesRaw = Array.isArray(value?.messages) ? value.messages : [];
-      const messages = messagesRaw
-        .map((message: unknown) => normalizeMessage(message))
-        .filter((message): message is ChatMessage => message !== null);
-
-      const fallbackNameFromMessages = (() => {
-        const firstUser = messages.find((message) => message.role === "user");
-        const base = firstUser?.content ?? messages[0]?.content ?? "";
-        return base ? truncateTitle(base) : `Conversation ${index + 1}`;
-      })();
-
-      const nameCandidate =
-        typeof value?.name === "string"
-          ? value.name
-          : typeof value?.title === "string"
-            ? value.title
-            : "";
-
-      const name =
-        nameCandidate.trim() && !nameCandidate.startsWith("Conversation ")
-          ? nameCandidate.trim()
-          : fallbackNameFromMessages;
-
-      const jurisdiction =
-        value?.jurisdiction === "federal" || value?.jurisdiction === "province"
-          ? value.jurisdiction
-          : "federal";
-
-      return {
-        id: typeof value?.id === "string" ? value.id : String(index + 1),
-        name,
-        messages,
-        jurisdiction,
-      };
-    });
-
-    const maxNumericId = normalized
-      .map((conversation) => Number.parseInt(conversation.id, 10))
-      .filter((value) => Number.isFinite(value))
-      .reduce((max, value) => Math.max(max, value), 1);
-    nextId = Math.max(2, maxNumericId + 1);
-
-    return normalized;
-  } catch {
-    return [{ id: "1", name: "New conversation", messages: [], jurisdiction: "federal" }];
-  }
-}
-
-function saveConversations(conversations: Conversation[]) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
-  } catch {
-    // Ignore quota / private mode errors
-  }
-}
+const CHAT_STATE_STORAGE_KEY = "regubot-chat-state-v1";
+const DEFAULT_CONVERSATION: Conversation = {
+  id: "1",
+  name: "Conversation 1",
+  messages: [],
+  jurisdiction: "federal",
+};
 
 function buildFallbackSourceUrl(rawSource: string, jurisdiction: Jurisdiction): string {
   const query = encodeURIComponent(rawSource);
@@ -176,21 +126,89 @@ function parseSource(rawSource: unknown, jurisdiction: Jurisdiction) {
   return null;
 }
 
+function parseRelevantDocument(rawDoc: unknown): { title: string; url: string } | null {
+  if (typeof rawDoc !== "object" || rawDoc === null) {
+    return null;
+  }
+
+  const candidate = rawDoc as Record<string, unknown>;
+  const title =
+    typeof candidate.title === "string"
+      ? candidate.title
+      : typeof candidate.name === "string"
+        ? candidate.name
+        : null;
+  const url =
+    typeof candidate.url === "string"
+      ? candidate.url
+      : typeof candidate.uri === "string"
+        ? candidate.uri
+        : null;
+
+  if (!title || !url) {
+    return null;
+  }
+  return { title, url };
+}
+
+function getNextConversationId(conversations: Conversation[]): number {
+  const maxId = conversations.reduce((max, conversation) => {
+    const parsed = Number.parseInt(conversation.id, 10);
+    if (Number.isNaN(parsed)) {
+      return max;
+    }
+    return Math.max(max, parsed);
+  }, 0);
+  return maxId + 1;
+}
+
+function loadPersistedState(): PersistedChatState {
+  try {
+    const raw = localStorage.getItem(CHAT_STATE_STORAGE_KEY);
+    if (!raw) {
+      return {
+        conversations: [DEFAULT_CONVERSATION],
+        activeConvId: DEFAULT_CONVERSATION.id,
+        inputValue: "",
+      };
+    }
+
+    const parsed = JSON.parse(raw) as Partial<PersistedChatState>;
+    const persistedConversations = Array.isArray(parsed.conversations)
+      ? parsed.conversations
+      : [];
+
+    const conversations =
+      persistedConversations.length > 0 ? persistedConversations : [DEFAULT_CONVERSATION];
+    const activeConvId =
+      typeof parsed.activeConvId === "string" &&
+      conversations.some((conversation) => conversation.id === parsed.activeConvId)
+        ? parsed.activeConvId
+        : conversations[0].id;
+    const inputValue = typeof parsed.inputValue === "string" ? parsed.inputValue : "";
+
+    nextId = Math.max(nextId, getNextConversationId(conversations));
+    return { conversations, activeConvId, inputValue };
+  } catch {
+    return {
+      conversations: [DEFAULT_CONVERSATION],
+      activeConvId: DEFAULT_CONVERSATION.id,
+      inputValue: "",
+    };
+  }
+}
+
 const ChatPage = () => {
-  const [conversations, setConversations] = useState<Conversation[]>(() => loadConversations());
-  const [activeConvId, setActiveConvId] = useState(() => {
-    const initial = loadConversations();
-    const saved = localStorage.getItem(ACTIVE_CONVERSATION_KEY);
-    return saved && initial.some((conversation) => conversation.id === saved)
-      ? saved
-      : initial[0]?.id ?? "1";
-  });
+  const [conversations, setConversations] = useState<Conversation[]>([
+    { id: "1", name: "Conversation 1", messages: [], jurisdiction: "federal" },
+  ]);
+  const [activeConvId, setActiveConvId] = useState("1");
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const activeConv = conversations.find((c) => c.id === activeConvId) ?? conversations[0];
+  const activeConv = conversations.find((c) => c.id === activeConvId)!;
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -199,16 +217,6 @@ const ChatPage = () => {
   useEffect(() => {
     scrollToBottom();
   }, [activeConv?.messages.length, scrollToBottom]);
-
-  useEffect(() => {
-    saveConversations(conversations);
-  }, [conversations]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(ACTIVE_CONVERSATION_KEY, activeConvId);
-    } catch {}
-  }, [activeConvId]);
 
   const addConversation = () => {
     const id = String(nextId++);
@@ -238,6 +246,8 @@ const ChatPage = () => {
   };
 
   const sendMessage = async (text?: string) => {
+    if (!activeConv) return;
+
     const content = text || inputValue.trim();
     if (!content || isLoading) return;
 
@@ -290,6 +300,9 @@ const ChatPage = () => {
         sources: (response.sources ?? [])
           .map((source) => parseSource(source, activeConv.jurisdiction))
           .filter((source): source is { title: string; url: string } => source !== null),
+        relevantDocuments: (response.relevant_documents ?? [])
+          .map((document) => parseRelevantDocument(document))
+          .filter((document): document is { title: string; url: string } => document !== null),
       };
 
       setConversations((prev) =>
@@ -342,7 +355,7 @@ const ChatPage = () => {
         <div className="flex items-center gap-2">
           <div className="relative">
             <select
-              value={activeConv.jurisdiction}
+              value={activeConv?.jurisdiction ?? "federal"}
               onChange={(event) => setJurisdiction(event.target.value as Jurisdiction)}
               className="appearance-none rounded-md border border-border bg-card py-1.5 pl-3 pr-8 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             >
@@ -394,7 +407,7 @@ const ChatPage = () => {
 
           <div className="flex-1 overflow-y-auto px-4 py-6 lg:px-8">
             <div className="mx-auto max-w-3xl space-y-5">
-              {activeConv.messages.length === 0 ? (
+              {!activeConv || activeConv.messages.length === 0 ? (
                 <div className="flex h-full items-center justify-center py-20">
                   <div className="space-y-3 text-center">
                     <Shield className="mx-auto h-10 w-10 text-muted-foreground/40" />

@@ -7,11 +7,17 @@ export interface Source {
   url: string;
 }
 
+export interface RelevantDocument {
+  title: string;
+  url: string;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   jurisdiction?: string;
   sources?: Source[];
+  relevantDocuments?: RelevantDocument[];
 }
 
 interface MessageBubbleProps {
@@ -102,22 +108,49 @@ const MessageBubble = ({ message }: MessageBubbleProps) => {
           )}
         </div>
 
-        {!isUser && message.sources && message.sources.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 pl-1">
-            {message.sources.map((source, index) => (
-              <a
-                key={index}
-                href={source.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground shadow-sm transition-colors hover:border-primary/40 hover:text-primary"
-              >
-                <FileText className="h-3 w-3" />
-                <span className="font-medium">[{index + 1}]</span>
-                <span className="max-w-[180px] truncate">{source.title}</span>
-                <ExternalLink className="h-2.5 w-2.5 opacity-50" />
-              </a>
-            ))}
+        {!isUser && (
+          <div className="space-y-2 pl-1">
+            {message.sources && message.sources.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {message.sources.map((source, index) => (
+                  <a
+                    key={`${source.url}-${index}`}
+                    href={source.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground shadow-sm transition-colors hover:border-primary/40 hover:text-primary"
+                  >
+                    <FileText className="h-3 w-3" />
+                    <span className="font-medium">[{index + 1}]</span>
+                    <span className="max-w-[180px] truncate">{source.title}</span>
+                    <ExternalLink className="h-2.5 w-2.5 opacity-50" />
+                  </a>
+                ))}
+              </div>
+            )}
+
+            {message.relevantDocuments && message.relevantDocuments.length > 0 && (
+              <div className="rounded-md border border-border bg-card/60 p-2">
+                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Relevant docs
+                </p>
+                <div className="space-y-1">
+                  {message.relevantDocuments.map((document, index) => (
+                    <a
+                      key={`${document.url}-${index}`}
+                      href={document.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                    >
+                      <span className="font-medium">{index + 1}.</span>
+                      <span className="truncate">{document.title}</span>
+                      <ExternalLink className="h-2.5 w-2.5 shrink-0 opacity-70" />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
