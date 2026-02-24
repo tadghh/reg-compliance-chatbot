@@ -20,6 +20,13 @@ from llama_index.embeddings.openai import OpenAIEmbedding
 from config import config
 
 
+# Rough character limits to keep prompts within model context.
+# 30k tokens ≈ 100k characters for typical English text; we stay under that.
+MAX_PROMPT_CHARS = 100_000
+MAX_CONTEXT_CHARS = 70_000
+MAX_HISTORY_CHARS = 20_000
+
+
 class QueryType(str, Enum):
     """High-level intent for regulatory queries."""
 
@@ -114,16 +121,19 @@ class RAGSystem:
         """
         self.ensure_initialized()
 
-        if self.index is None:
-            # Create new index from documents
-            self.index = VectorStoreIndex.from_documents(
-                documents,
-                storage_context=self.storage_context,
-                show_progress=True,
-            )
-        else:
-            # Insert into existing index
-            self.index.insert_nodes(documents, show_progress=True)
+        # Always write new documents into the underlying Qdrant vector store.
+        # We keep ingestion independent from the in-memory index object so we can
+        # safely call this multiple times (including from batched uploads).
+        VectorStoreIndex.from_documents(
+            documents,
+            storage_context=self.storage_context,
+            show_progress=True,
+        )
+
+        # Refresh the query index to ensure it can see any newly ingested vectors.
+        self.index = VectorStoreIndex.from_vector_store(
+            vector_store=self.vector_store
+        )
 
         return {
             "status": "success",
@@ -258,6 +268,11 @@ legal jargon, but do not oversimplify regulatory requirements.
             if lines:
                 history_block = "Conversation so far:\n" + "\n".join(lines) + "\n\n"
 
+        # If the conversation history is extremely long, keep only the most
+        # recent portion so the prompt stays within token limits.
+        if history_block and len(history_block) > MAX_HISTORY_CHARS:
+            history_block = history_block[-MAX_HISTORY_CHARS:]
+
         user_prompt = f"""
 {history_block}User's original question:
 {original_query}
@@ -274,6 +289,23 @@ Now write the final answer.
 """
 
         full_prompt = base_system + task + "\n\n" + user_prompt
+
+        # Final safety check: if, for some reason, the assembled prompt is
+        # still too large, hard-truncate the oldest parts of the context while
+        # preserving the instructions and recent history.
+        if len(full_prompt) > MAX_PROMPT_CHARS:
+            # Keep the system + task instructions intact, and trim within
+            # the user section.
+            head = (base_system + task + "\n\n")
+            tail = user_prompt
+            available = MAX_PROMPT_CHARS - len(head)
+            if available > 0:
+                tail = tail[-available:]
+            else:
+                tail = tail[: MAX_PROMPT_CHARS // 2]
+                head = head[: MAX_PROMPT_CHARS - len(tail)]
+            full_prompt = head + tail
+
         raw = Settings.llm.complete(full_prompt)
         return raw.text if hasattr(raw, "text") else str(raw)
 
@@ -478,6 +510,37 @@ Search-optimized version of the query:
                 "relevant_documents": web_results,
             }
 
+        # No relevant nodes from the corpus. If we still have a conversation
+        # history, fall back to answering from the chat history alone instead
+        # of immediately returning "not in corpus". This covers questions like
+        # "what did you say previously?" that are about the conversation rather
+        # than external documents.
+        if not source_nodes and messages:
+            history_only_context = (
+                "No external regulatory documents were retrieved as relevant for this\n"
+                "specific question. You may answer using ONLY the conversation history\n"
+                "above and general reasoning about that history, but you MUST NOT invent\n"
+                "or assume new regulatory facts that do not appear in the context.\n"
+            )
+
+            answer = self._generate_answer(
+                query_type=classified.query_type,
+                original_query=query_text,
+                rewritten_query=classified.rewritten_query,
+                context=history_only_context,
+                jurisdiction=jurisdiction,
+                messages=messages,
+            )
+
+            web_results = self.search_web_for_documents(query_text)
+
+            return {
+                "answer": answer,
+                "sources": [],
+                "nodes_retrieved": 0,
+                "relevant_documents": web_results,
+            }
+
         if not source_nodes:
             return {
                 "answer": (
@@ -504,10 +567,17 @@ Search-optimized version of the query:
 
         context_str = "\n\n".join(context_chunks)
 
-        # Limit context to 30k tokens (~120k characters)
-        MAX_CONTEXT_CHARS = 30_000 * 4  # Rough estimate: 4 chars per token
+        # Trim overly long context while preserving both the start and end,
+        # which often contain headings and the most relevant excerpts.
         if len(context_str) > MAX_CONTEXT_CHARS:
-            context_str = context_str[:MAX_CONTEXT_CHARS] + "\n\n[truncated...]"
+            half = MAX_CONTEXT_CHARS // 2
+            head = context_str[:half]
+            tail = context_str[-half:]
+            context_str = (
+                head
+                + "\n...\n[context truncated to fit model limits]\n...\n"
+                + tail
+            )
 
         answer = self._generate_answer(
             query_type=classified.query_type,
