@@ -133,21 +133,27 @@ class RAGSystem:
             response = self._openai_client.responses.create(
                 model=config.openai_model,
                 tools=[{"type": "web_search"}],
-                input=f"Find official government documents, forms, and regulations related to: {query}",
+                input=f"Find relevent government documents and forms related to: {query}",
             )
 
-            # Extract URLs and titles from search results
+            # Extract URLs and titles from annotations (url_citation)
             results = []
+            seen_urls = set()  # Deduplicate
+
             for output in response.output:
                 if output.type == "message":
-                    for content in output.content:
-                        if content.type == "web_search_tool":
-                            results.append(
-                                {
-                                    "title": content.title or "Untitled",
-                                    "url": content.url,
-                                }
-                            )
+                    for content_block in output.content:
+                        # Check for annotations containing url_citation
+                        if hasattr(content_block, "annotations") and content_block.annotations:
+                            for annotation in content_block.annotations:
+                                if annotation.type == "url_citation":
+                                    url = annotation.url
+                                    if url and url not in seen_urls:
+                                        seen_urls.add(url)
+                                        results.append({
+                                            "title": annotation.title or "Untitled",
+                                            "url": url,
+                                        })
 
             return results
 
