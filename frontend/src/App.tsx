@@ -1,5 +1,7 @@
-import { FormEvent, useMemo, useState } from "react";
-import { Copy, ExternalLink, Loader2, Send } from "lucide-react";
+import { FormEvent, useMemo, useState, type ReactNode } from "react";
+import { Copy, ExternalLink, Loader2, Plus, Send, X } from "lucide-react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,6 +29,14 @@ type ChatMessage = {
   text: string;
   sources: Source[];
   jurisdiction?: Jurisdiction;
+};
+
+type Conversation = {
+  id: string;
+  title: string;
+  jurisdiction: Jurisdiction;
+  input: string;
+  messages: ChatMessage[];
 };
 
 const demoQuestions = [
@@ -85,18 +95,95 @@ function parseSource(rawSource: unknown, jurisdiction: Jurisdiction): Source | n
   return null;
 }
 
+function truncateTitle(value: string): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (compact.length <= 42) {
+    return compact;
+  }
+  return `${compact.slice(0, 39)}...`;
+}
+
+function createConversation(number: number): Conversation {
+  return {
+    id: crypto.randomUUID(),
+    title: `Conversation ${number}`,
+    jurisdiction: "federal",
+    input: "",
+    messages: [],
+  };
+}
+
+const initialConversation = createConversation(1);
+
+const markdownComponents: Components = {
+  p: ({ children }) => (
+    <p className="mb-3 last:mb-0">{children}</p>
+  ),
+  ul: ({ children }) => (
+    <ul className="mb-3 list-disc pl-5 last:mb-0">{children}</ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="mb-3 list-decimal pl-5 last:mb-0">{children}</ol>
+  ),
+  li: ({ children }) => <li className="mb-1">{children}</li>,
+  a: ({ href, children }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="text-primary underline underline-offset-2"
+    >
+      {children}
+    </a>
+  ),
+  code: ({ children }) => (
+    <code className="rounded bg-muted px-1 py-0.5 text-[0.85em]">{children}</code>
+  ),
+  pre: ({ children }) => (
+    <pre className="mb-3 overflow-x-auto rounded bg-muted p-3 text-[0.85em] last:mb-0">
+      {children as ReactNode}
+    </pre>
+  ),
+  table: ({ children }) => (
+    <div className="mb-3 overflow-x-auto rounded border last:mb-0">
+      <table className="w-full border-collapse text-left text-sm">{children}</table>
+    </div>
+  ),
+  th: ({ children }) => (
+    <th className="border-b bg-muted px-3 py-2 font-medium">{children}</th>
+  ),
+  td: ({ children }) => (
+    <td className="border-b px-3 py-2 align-top">{children}</td>
+  ),
+};
+
 function App() {
-  const [jurisdiction, setJurisdiction] = useState<Jurisdiction>("federal");
-  const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([
+    initialConversation,
+  ]);
+  const [activeConversationId, setActiveConversationId] = useState<string>(
+    initialConversation.id,
+  );
+  const [nextConversationNumber, setNextConversationNumber] = useState(2);
   const [loading, setLoading] = useState(false);
   const [copiedQuestion, setCopiedQuestion] = useState<string | null>(null);
 
+  const activeConversation = useMemo(() => {
+    return (
+      conversations.find((conversation) => conversation.id === activeConversationId) ??
+      conversations[0]
+    );
+  }, [activeConversationId, conversations]);
+
+  const activeJurisdiction = activeConversation?.jurisdiction ?? "federal";
+  const activeInput = activeConversation?.input ?? "";
+  const activeMessages = activeConversation?.messages ?? [];
+
   const placeholder = useMemo(() => {
-    return jurisdiction === "federal"
+    return activeJurisdiction === "federal"
       ? "Ask a federal compliance question..."
       : "Ask a Manitoba compliance question...";
-  }, [jurisdiction]);
+  }, [activeJurisdiction]);
 
   async function copyQuestion(question: string) {
     try {
@@ -108,25 +195,77 @@ function App() {
     }
   }
 
+  function updateConversation(
+    conversationId: string,
+    updater: (conversation: Conversation) => Conversation,
+  ) {
+    setConversations((previous) =>
+      previous.map((conversation) =>
+        conversation.id === conversationId ? updater(conversation) : conversation,
+      ),
+    );
+  }
+
+  function handleCreateConversation() {
+    if (loading) {
+      return;
+    }
+    const conversation = createConversation(nextConversationNumber);
+    setConversations((previous) => [conversation, ...previous]);
+    setActiveConversationId(conversation.id);
+    setNextConversationNumber((previous) => previous + 1);
+  }
+
+  function handleDeleteConversation(conversationId: string) {
+    if (loading || conversations.length === 1) {
+      return;
+    }
+
+    setConversations((previous) =>
+      previous.filter((conversation) => conversation.id !== conversationId),
+    );
+
+    if (activeConversationId === conversationId) {
+      const nextConversation = conversations.find(
+        (conversation) => conversation.id !== conversationId,
+      );
+      if (nextConversation) {
+        setActiveConversationId(nextConversation.id);
+      }
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const userMessage = input.trim();
+    if (!activeConversation) {
+      return;
+    }
+
+    const conversationId = activeConversation.id;
+    const jurisdiction = activeConversation.jurisdiction;
+    const userMessage = activeConversation.input.trim();
     if (!userMessage || loading) {
       return;
     }
 
-    const nextMessages: ChatMessage[] = [
-      ...messages,
-      {
-        id: crypto.randomUUID(),
-        role: "user",
-        text: userMessage,
-        sources: [],
-        jurisdiction,
-      },
-    ];
-    setMessages(nextMessages);
-    setInput("");
+    const userMessageEntry: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "user",
+      text: userMessage,
+      sources: [],
+      jurisdiction,
+    };
+    const updatedTitle =
+      activeConversation.messages.length === 0
+        ? truncateTitle(userMessage)
+        : activeConversation.title;
+
+    updateConversation(conversationId, (conversation) => ({
+      ...conversation,
+      title: updatedTitle,
+      input: "",
+      messages: [...conversation.messages, userMessageEntry],
+    }));
     setLoading(true);
 
     try {
@@ -139,28 +278,34 @@ function App() {
         .map((item) => parseSource(item, jurisdiction))
         .filter((item): item is Source => item !== null);
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          text: data.answer?.trim() || "No answer returned.",
-          sources: parsedSources,
-          jurisdiction,
-        },
-      ]);
+      updateConversation(conversationId, (conversation) => ({
+        ...conversation,
+        messages: [
+          ...conversation.messages,
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            text: data.answer?.trim() || "No answer returned.",
+            sources: parsedSources,
+            jurisdiction,
+          },
+        ],
+      }));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          text: `Unable to fetch response from backend: ${message}`,
-          sources: [],
-          jurisdiction,
-        },
-      ]);
+      updateConversation(conversationId, (conversation) => ({
+        ...conversation,
+        messages: [
+          ...conversation.messages,
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            text: `Unable to fetch response from backend: ${message}`,
+            sources: [],
+            jurisdiction,
+          },
+        ],
+      }));
     } finally {
       setLoading(false);
     }
@@ -180,36 +325,81 @@ function App() {
       <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
         <Card className="h-fit">
           <CardHeader className="space-y-4">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="space-y-2">
                 <CardTitle>Chat</CardTitle>
                 <CardDescription>
                   Ask compliance questions and inspect source links under each answer.
                 </CardDescription>
               </div>
-              <div className="w-full sm:w-60">
-                <Label htmlFor="jurisdiction">Jurisdiction</Label>
-                <Select
-                  id="jurisdiction"
-                  value={jurisdiction}
-                  onChange={(event) =>
-                    setJurisdiction(event.target.value as Jurisdiction)
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full sm:w-auto"
+                onClick={handleCreateConversation}
+                disabled={loading}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                New conversation
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {conversations.map((conversation) => (
+                <div
+                  key={conversation.id}
+                  className={
+                    conversation.id === activeConversation?.id
+                      ? "flex max-w-[280px] items-center gap-1 rounded-md border border-transparent bg-primary px-2 text-primary-foreground"
+                      : "flex max-w-[280px] items-center gap-1 rounded-md border bg-background px-2"
                   }
                 >
-                  <option value="federal">Federal</option>
-                  <option value="province">Manitoba (Province)</option>
-                </Select>
-              </div>
+                  <button
+                    type="button"
+                    className="truncate py-1.5 text-sm"
+                    onClick={() => setActiveConversationId(conversation.id)}
+                  >
+                    {conversation.title}
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded p-1 transition-colors hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label={`Delete ${conversation.title}`}
+                    onClick={() => handleDeleteConversation(conversation.id)}
+                    disabled={loading || conversations.length === 1}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="w-full sm:w-60">
+              <Label htmlFor="jurisdiction">Jurisdiction</Label>
+              <Select
+                id="jurisdiction"
+                value={activeJurisdiction}
+                onChange={(event) =>
+                  activeConversation &&
+                  updateConversation(activeConversation.id, (conversation) => ({
+                    ...conversation,
+                    jurisdiction: event.target.value as Jurisdiction,
+                  }))
+                }
+                disabled={loading}
+              >
+                <option value="federal">Federal</option>
+                <option value="province">Manitoba (Province)</option>
+              </Select>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="max-h-[56vh] space-y-3 overflow-y-auto pr-1">
-              {messages.length === 0 && (
+              {activeMessages.length === 0 && (
                 <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
                   No messages yet. Try one of the demo prompts.
                 </div>
               )}
-              {messages.map((message) => (
+              {activeMessages.map((message) => (
                 <article
                   key={message.id}
                   className={
@@ -226,7 +416,18 @@ function App() {
                       <Badge variant="outline">{message.jurisdiction}</Badge>
                     )}
                   </div>
-                  <p className="whitespace-pre-wrap text-sm leading-6">{message.text}</p>
+                  {message.role === "assistant" ? (
+                    <div className="text-sm leading-6">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={markdownComponents}
+                      >
+                        {message.text}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p className="whitespace-pre-wrap text-sm leading-6">{message.text}</p>
+                  )}
                   {message.role === "assistant" && (
                     <>
                       <Separator className="my-3" />
@@ -271,13 +472,22 @@ function App() {
               <Label htmlFor="question">Message</Label>
               <Textarea
                 id="question"
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
+                value={activeInput}
+                onChange={(event) =>
+                  activeConversation &&
+                  updateConversation(activeConversation.id, (conversation) => ({
+                    ...conversation,
+                    input: event.target.value,
+                  }))
+                }
                 placeholder={placeholder}
                 disabled={loading}
               />
               <div className="flex justify-end">
-                <Button type="submit" disabled={loading || input.trim().length === 0}>
+                <Button
+                  type="submit"
+                  disabled={loading || activeInput.trim().length === 0}
+                >
                   <Send className="mr-2 h-4 w-4" />
                   Send
                 </Button>
@@ -304,7 +514,13 @@ function App() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setInput(question)}
+                      onClick={() =>
+                        activeConversation &&
+                        updateConversation(activeConversation.id, (conversation) => ({
+                          ...conversation,
+                          input: question,
+                        }))
+                      }
                       disabled={loading}
                     >
                       Use
