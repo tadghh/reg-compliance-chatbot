@@ -15,7 +15,10 @@ from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.llms.openai import OpenAI as LlamaOpenAI
 from llama_index.embeddings.openai import OpenAIEmbedding
 
-from config import config
+try:
+    from backend.config import config
+except ModuleNotFoundError:
+    from config import config
 
 
 class RAGSystem:

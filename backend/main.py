@@ -21,9 +21,14 @@ from llama_index.core import (
     Document,
 )
 
-from RAGSystem import RAGSystem
-from config import config
-from models import HealthResponse, QueryRequest, QueryResponse, UploadResponse
+try:
+    from backend.RAGSystem import RAGSystem
+    from backend.config import config
+    from backend.models import HealthResponse, QueryRequest, QueryResponse, UploadResponse
+except ModuleNotFoundError:
+    from RAGSystem import RAGSystem
+    from config import config
+    from models import HealthResponse, QueryRequest, QueryResponse, UploadResponse
 
 rag_system = RAGSystem()
 
