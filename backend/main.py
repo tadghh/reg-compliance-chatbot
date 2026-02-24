@@ -14,7 +14,8 @@ from qdrant_client import QdrantClient
 from openai import OpenAI
 from pypdf import PdfReader
 
-from dotenv import load_dotenv
+# Load environment variables BEFORE importing config/RAGSystem so .env values (like QDRANT_URL) are applied.
+load_dotenv()
 
 from llama_index.core import (
     Document,
@@ -23,8 +24,6 @@ from llama_index.core import (
 from RAGSystem import RAGSystem
 from config import config
 from models import HealthResponse, QueryRequest, QueryResponse, UploadResponse
-
-load_dotenv()
 
 rag_system = RAGSystem()
 
