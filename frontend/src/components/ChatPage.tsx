@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Plus, X, Send, Loader2, Shield, ChevronDown } from "lucide-react";
+import { Plus, X, Send, Loader2, Shield, ChevronDown, Moon, Sun } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import DemoQuestionsPanel from "@/components/DemoQuestionsPanel";
@@ -18,6 +18,8 @@ type PersistedChatState = {
   activeConvId: string;
   inputValue: string;
 };
+
+type Theme = "light" | "dark";
 
 const DEMO_QUESTIONS = [
   { text: "Who is eligible for a Design Canada Scholarship and what is it for?" },
@@ -76,6 +78,7 @@ const JURISDICTIONS: { value: Jurisdiction; label: string }[] = [
 
 let nextId = 2;
 const CHAT_STATE_STORAGE_KEY = "regubot-chat-state-v1";
+const THEME_STORAGE_KEY = "regubot-theme";
 const DEFAULT_CONVERSATION: Conversation = {
   id: "1",
   name: "Conversation 1",
@@ -198,6 +201,18 @@ function loadPersistedState(): PersistedChatState {
   }
 }
 
+function loadInitialTheme(): Theme {
+  try {
+    const stored = localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored === "light" || stored === "dark") {
+      return stored;
+    }
+  } catch {
+    // Ignore storage access issues
+  }
+  return "light";
+}
+
 function truncateTitle(title: string, maxLength = 48): string {
   const trimmed = title.trim();
   if (trimmed.length <= maxLength) return trimmed;
@@ -221,6 +236,7 @@ const ChatPage = () => {
   const [inputValue, setInputValue] = useState(initialState.inputValue);
   const [isLoading, setIsLoading] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
+  const [theme, setTheme] = useState<Theme>(loadInitialTheme);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const activeConv = conversations.find((c) => c.id === activeConvId);
@@ -250,6 +266,15 @@ const ChatPage = () => {
       // Ignore persistence errors (e.g., storage quota, disabled cookies)
     }
   }, [conversations, activeConvId, inputValue]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // Ignore persistence errors (e.g., storage quota, disabled cookies)
+    }
+  }, [theme]);
 
   const addConversation = () => {
     const id = String(nextId++);
@@ -378,14 +403,24 @@ const ChatPage = () => {
 
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4 lg:px-6">
         <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-            <Shield className="h-4 w-4 text-primary" />
-          </div>
-          <h1 className="text-base font-semibold tracking-tight text-foreground">
-            Regulatory Compliance
-          </h1>
+          <img
+            src="/shield-svgrepo-com.svg"
+            alt="Regulatory Compliance"
+            className="h-8 w-auto"
+          />
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
+            className="h-8 gap-1.5 px-2.5"
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+            title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+          >
+            {theme === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+            <span className="hidden text-xs sm:inline">{theme === "dark" ? "Light" : "Dark"}</span>
+          </Button>
           <div className="relative">
             <select
               value={activeConv?.jurisdiction ?? "federal"}
