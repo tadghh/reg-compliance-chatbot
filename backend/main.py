@@ -42,17 +42,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS configuration - allow frontend origins
+# CORS configuration - allow all origins for hackathon demo
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "https://reg-compliance-chatbot.vercel.app",
-        "https://reg-compliance-chatbot.netlify.app",
-        "*",  # Allow all origins for hackathon demo
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,  # Must be False when using wildcard origins
     allow_methods=["*"],
     allow_headers=["*"],
 )
