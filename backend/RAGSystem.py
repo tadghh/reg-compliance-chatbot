@@ -160,8 +160,9 @@ class RAGSystem:
 
             return results
 
-        except Exception:
-            # Silently return empty list on search failure
+        except Exception as e:
+            # Log the error for debugging
+            print(f"Web search failed: {type(e).__name__}: {e}")
             return []
 
     def query(self, query_text: str, top_k: int = 5) -> dict[str, Any]:

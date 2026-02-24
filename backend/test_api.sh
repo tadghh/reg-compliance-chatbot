@@ -26,10 +26,10 @@ check_response() {
     local name="$1"
     local status="$2"
     if [ "$status" -eq 200 ] || [ "$status" -eq 201 ]; then
-        echo -e "${GREEN}✓ PASSED${NC}: $name (status: $status)"
+        echo -e "${GREEN}PASS${NC}: $name (status: $status)"
         ((PASSED++))
     else
-        echo -e "${RED}✗ FAILED${NC}: $name (status: $status)"
+        echo -e "${RED}FAIL${NC}: $name (status: $status)"
         ((FAILED++))
     fi
 }
@@ -52,8 +52,8 @@ check_response "Health check" "$HTTP_CODE"
 
 echo ""
 echo "=== Test 3: Upload Document ==="
-# Create a temporary test file
-TEST_FILE="/tmp/test_compliance_doc.txt"
+# Create a temporary test file (multipart form to /upload endpoint)
+TEST_FILE="${TMPDIR:-/tmp}/test_compliance_doc.txt"
 cat > "$TEST_FILE" << 'EOF'
 REGULATORY COMPLIANCE TEST DOCUMENT
 ====================================
@@ -102,10 +102,11 @@ RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/query" \
     -d '{}')
 HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
 if [ "$HTTP_CODE" -eq 422 ]; then
-    echo -e "${GREEN}✓ PASSED${NC}: Empty query returns 422 (status: $HTTP_CODE)"
+    echo "Empty query returns 422 (status: $HTTP_CODE)"
+    echo -e "${GREEN}PASS${NC}: Empty query returns 422 (status: $HTTP_CODE)"
     ((PASSED++))
 else
-    echo -e "${RED}✗ FAILED${NC}: Expected 422, got $HTTP_CODE"
+    echo -e "${RED}FAIL${NC}: Empty query returns 422 (status: $HTTP_CODE)"
     ((FAILED++))
 fi
 
@@ -118,8 +119,8 @@ RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/query" \
     -d '{"query": "test query"}')
 HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
 if [ "$HTTP_CODE" -eq 400 ] || [ "$HTTP_CODE" -eq 500 ]; then
-    echo -e "${YELLOW}⚠ EXPECTED${NC}: Query without documents fails (status: $HTTP_CODE)"
-    echo "  (This is expected if no documents were uploaded in test 3)"
+    echo -e "${YELLOW}EXPECTED${NC}: Query without documents fails (status: $HTTP_CODE)"
+    echo "  (This is expected if no documents were uploaded in Test 3)"
 else
     echo "Status: $HTTP_CODE"
 fi
