@@ -198,17 +198,32 @@ function loadPersistedState(): PersistedChatState {
   }
 }
 
+function truncateTitle(title: string, maxLength = 48): string {
+  const trimmed = title.trim();
+  if (trimmed.length <= maxLength) return trimmed;
+
+  const slice = trimmed.slice(0, maxLength);
+  const lastSpace = slice.lastIndexOf(" ");
+  const base = lastSpace > 8 ? slice.slice(0, lastSpace) : slice;
+
+  return `${base}…`;
+}
+
 const ChatPage = () => {
-  const [conversations, setConversations] = useState<Conversation[]>([
-    { id: "1", name: "Conversation 1", messages: [], jurisdiction: "federal" },
-  ]);
-  const [activeConvId, setActiveConvId] = useState("1");
-  const [inputValue, setInputValue] = useState("");
+  const initialStateRef = useRef<PersistedChatState | null>(null);
+  if (!initialStateRef.current) {
+    initialStateRef.current = loadPersistedState();
+  }
+  const initialState = initialStateRef.current!;
+
+  const [conversations, setConversations] = useState<Conversation[]>(initialState.conversations);
+  const [activeConvId, setActiveConvId] = useState(initialState.activeConvId);
+  const [inputValue, setInputValue] = useState(initialState.inputValue);
   const [isLoading, setIsLoading] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const activeConv = conversations.find((c) => c.id === activeConvId)!;
+  const activeConv = conversations.find((c) => c.id === activeConvId);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -217,6 +232,24 @@ const ChatPage = () => {
   useEffect(() => {
     scrollToBottom();
   }, [activeConv?.messages.length, scrollToBottom]);
+
+  useEffect(() => {
+    if (!conversations.length) return;
+
+    const stateToPersist: PersistedChatState = {
+      conversations,
+      activeConvId: conversations.some((conversation) => conversation.id === activeConvId)
+        ? activeConvId
+        : conversations[0].id,
+      inputValue,
+    };
+
+    try {
+      localStorage.setItem(CHAT_STATE_STORAGE_KEY, JSON.stringify(stateToPersist));
+    } catch {
+      // Ignore persistence errors (e.g., storage quota, disabled cookies)
+    }
+  }, [conversations, activeConvId, inputValue]);
 
   const addConversation = () => {
     const id = String(nextId++);
