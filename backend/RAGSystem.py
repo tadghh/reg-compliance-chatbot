@@ -130,7 +130,11 @@ class RAGSystem:
             "collection": config.collection_name,
         }
 
-    def _classify_and_rewrite(self, user_query: str) -> ClassifiedQuery:
+    def _classify_and_rewrite(
+        self,
+        user_query: str,
+        jurisdiction: str | None = None,
+    ) -> ClassifiedQuery:
         """
         First prompt in the chain: classify intent and rewrite query for retrieval.
         """
@@ -150,7 +154,15 @@ Return STRICT JSON with keys:
 
 Do not include explanations or extra text.
 """
-        prompt = f"{system_prompt}\n\nUSER QUERY:\n{user_query}\n\nJSON:"
+        jurisdiction_hint = (
+            f"\nJurisdiction context: {jurisdiction}."
+            if jurisdiction
+            else "\nJurisdiction context: not specified."
+        )
+        prompt = (
+            f"{system_prompt}\n\nUSER QUERY:\n{user_query}"
+            f"{jurisdiction_hint}\n\nJSON:"
+        )
         raw = Settings.llm.complete(prompt)
         text = raw.text if hasattr(raw, "text") else str(raw)
 
@@ -176,6 +188,8 @@ Do not include explanations or extra text.
         original_query: str,
         rewritten_query: str,
         context: str,
+        jurisdiction: str | None = None,
+        messages: list[dict[str, str]] | None = None,
     ) -> str:
         """
         Final prompt in the chain: turn retrieved context into a structured answer.
@@ -223,12 +237,34 @@ staying grounded in the context. Use short paragraphs and avoid unnecessary
 legal jargon, but do not oversimplify regulatory requirements.
 """
 
+        jurisdiction_info = (
+            f"\nJurisdiction (if provided): {jurisdiction}"
+            if jurisdiction
+            else ""
+        )
+
+        history_block = ""
+        if messages:
+            lines: list[str] = []
+            for message in messages:
+                role = (message.get("role") or "").strip().lower()
+                content = (message.get("content") or "").strip()
+                if not content:
+                    continue
+                prefix = "User" if role == "user" else "Assistant"
+                lines.append(f"{prefix}: {content}")
+
+            if lines:
+                history_block = "Conversation so far:\n" + "\n".join(lines) + "\n\n"
+
         user_prompt = f"""
-User's original question:
+{history_block}User's original question:
 {original_query}
 
 Rewritten query for retrieval:
 {rewritten_query}
+
+{jurisdiction_info}
 
 Relevant context chunks (with numbered citations):
 {context}
@@ -375,7 +411,13 @@ Search-optimized version of the query:
             "department, or the instructions that accompany the form."
         )
 
-    def query(self, query_text: str, top_k: int = 5) -> dict[str, Any]:
+    def query(
+        self,
+        query_text: str,
+        top_k: int = 5,
+        jurisdiction: str | None = None,
+        messages: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
         """
         Query the RAG system using a prompt-chained flow.
 
@@ -384,6 +426,11 @@ Search-optimized version of the query:
         2) Vectorize rewritten query → Qdrant search → retrieve nodes.
         3) Use a specialized prompt (based on query type) to generate answer.
         4) Run a web search for additional relevant documents/forms.
+
+        The optional `jurisdiction` hint is used to steer the LLM prompts
+        (e.g., "federal" vs "province") but does not yet apply vector-store
+        filters; this keeps behavior consistent when documents lack
+        jurisdiction metadata.
         """
         self.ensure_initialized()
 
@@ -393,7 +440,13 @@ Search-optimized version of the query:
                 detail="No documents indexed yet. Upload documents first.",
             )
 
-        classified = self._classify_and_rewrite(query_text)
+        classified = self._classify_and_rewrite(
+            user_query=query_text,
+            jurisdiction=jurisdiction,
+        )
+
+        # Minimum similarity score threshold - nodes below this are considered irrelevant
+        SIMILARITY_THRESHOLD = 0.35
 
         query_engine = self.index.as_query_engine(
             similarity_top_k=top_k,
@@ -401,9 +454,16 @@ Search-optimized version of the query:
         )
 
         retrieval_result = query_engine.query(classified.rewritten_query)
-        source_nodes = list(getattr(retrieval_result, "source_nodes", []) or [])
+        raw_nodes = list(getattr(retrieval_result, "source_nodes", []) or [])
 
-        # No local context at all – special-case permit guidance to fall back to web search.
+        # Filter nodes by similarity score - reject low-quality matches
+        source_nodes = []
+        for node in raw_nodes:
+            score = getattr(node, "score", None)
+            if score is not None and score >= SIMILARITY_THRESHOLD:
+                source_nodes.append(node)
+
+        # No relevant nodes after filtering - special-case permit guidance to fall back to web search
         if not source_nodes and classified.query_type == QueryType.PERMIT_GUIDANCE:
             web_results = self.search_web_for_documents(query_text)
             answer = self._generate_permit_guidance_from_web(
@@ -430,14 +490,15 @@ Search-optimized version of the query:
             }
 
         context_chunks: list[str] = []
-        sources: list[str] = []
+        sources_set: set[str] = set()  # Deduplicate sources
 
         for idx, node in enumerate(source_nodes, start=1):
             metadata = node.metadata or {}
             source_name = metadata.get("file_name", "unknown")
-            sources.append(source_name)
+            score = getattr(node, "score", 0)
+            sources_set.add(source_name)
             context_chunks.append(
-                f"[{idx}] Source: {source_name}\n{node.text.strip()}"
+                f"[{idx}] Source: {source_name} (relevance: {score:.2f})\n{node.text.strip()}"
             )
 
         context_str = "\n\n".join(context_chunks)
@@ -447,13 +508,15 @@ Search-optimized version of the query:
             original_query=query_text,
             rewritten_query=classified.rewritten_query,
             context=context_str,
+            jurisdiction=jurisdiction,
+            messages=messages,
         )
 
         web_results = self.search_web_for_documents(query_text)
 
         return {
             "answer": answer,
-            "sources": sources,
+            "sources": list(sources_set),
             "nodes_retrieved": len(source_nodes),
             "relevant_documents": web_results,
         }
