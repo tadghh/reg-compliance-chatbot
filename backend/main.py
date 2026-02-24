@@ -8,9 +8,9 @@ from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
+from openai import OpenAI
 
 # LlamaIndex imports
 from llama_index.core import (
@@ -20,7 +20,7 @@ from llama_index.core import (
     Document,
 )
 from llama_index.vector_stores.qdrant import QdrantVectorStore
-from llama_index.llms.openai import OpenAI
+from llama_index.llms.openai import OpenAI as LlamaOpenAI
 from llama_index.embeddings.openai import OpenAIEmbedding
 
 # Load environment variables
@@ -67,6 +67,7 @@ class RAGSystem:
         self.vector_store: QdrantVectorStore | None = None
         self.storage_context: StorageContext | None = None
         self.index: VectorStoreIndex | None = None
+        self._openai_client: OpenAI | None = None
 
         # Initialize on first use
         self._initialized = False
@@ -77,7 +78,7 @@ class RAGSystem:
             return
 
         # Initialize LlamaIndex settings
-        Settings.llm = OpenAI(
+        Settings.llm = LlamaOpenAI(
             model=config.openai_model,
             temperature=0.1,
             api_key=config.openai_api_key or None,
@@ -116,6 +117,9 @@ class RAGSystem:
             # Collection doesn't exist yet, will create on first upload
             self.index = None
 
+        # Initialize OpenAI client for web search
+        self._openai_client = OpenAI(api_key=config.openai_api_key or None)
+
         self._initialized = True
 
     def ensure_initialized(self) -> None:
@@ -148,12 +152,57 @@ class RAGSystem:
             "collection": config.collection_name,
         }
 
+    def search_web_for_documents(self, query: str) -> list[dict[str, str]]:
+        """
+        Search the web for relevant official documents and forms.
+
+        Uses OpenAI's web_search tool to find relevant URLs and titles.
+
+        Args:
+            query: The search query
+
+        Returns:
+            List of dicts with 'title' and 'url' keys
+        """
+        self.ensure_initialized()
+
+        if not self._openai_client:
+            return []
+
+        try:
+            # Use OpenAI Responses API with web_search tool
+            response = self._openai_client.responses.create(
+                model=config.openai_model,
+                tools=[{"type": "web_search"}],
+                input=f"Find official government documents, forms, and regulations related to: {query}",
+            )
+
+            # Extract URLs and titles from search results
+            results = []
+            for output in response.output:
+                if output.type == "message":
+                    for content in output.content:
+                        if content.type == "web_search_tool":
+                            results.append(
+                                {
+                                    "title": content.title or "Untitled",
+                                    "url": content.url,
+                                }
+                            )
+
+            return results
+
+        except Exception:
+            # Silently return empty list on search failure
+            return []
+
     def query(self, query_text: str, top_k: int = 5) -> dict[str, Any]:
         """
         Query the RAG system.
 
         Flow: query → vectorize (OpenAI) → Qdrant search →
               retrieve nodes → LlamaIndex → LLM → response
+              → then search web for relevant documents
         """
         self.ensure_initialized()
 
@@ -183,12 +232,16 @@ class RAGSystem:
                 )
                 sources.append(source)
 
+        # Search web for relevant documents/forms
+        web_results = self.search_web_for_documents(query_text)
+
         return {
             "answer": str(response),
             "sources": sources,
             "nodes_retrieved": len(response.source_nodes)
             if hasattr(response, "source_nodes")
             else 0,
+            "relevant_documents": web_results,
         }
 
 
@@ -230,12 +283,20 @@ class QueryRequest(BaseModel):
     top_k: int = 5
 
 
+class WebSearchResult(BaseModel):
+    """Model for web search result."""
+
+    title: str
+    url: str
+
+
 class QueryResponse(BaseModel):
     """Response model for /query endpoint."""
 
     answer: str
     sources: list[str]
     nodes_retrieved: int
+    relevant_documents: list[WebSearchResult]
 
 
 class UploadResponse(BaseModel):
@@ -326,18 +387,20 @@ async def query_documents(request: QueryRequest) -> QueryResponse:
 
     Flow: user query → endpoint → vectorize (OpenAI) → Qdrant search →
           retrieve nodes → LlamaIndex → LLM → response
+          → web search for relevant documents → return
 
     - Vectorizes the query using OpenAI embeddings
     - Searches Qdrant for similar vectors
     - Retrieves relevant document chunks
     - Passes to LLM for generation
-    - Returns the generated response
+    - Searches web for official documents/forms
+    - Returns the generated response with relevant document links
     """
     try:
         if not request.query.strip():
             raise HTTPException(status_code=400, detail="Query cannot be empty")
 
-        # Query RAG system
+        # Query RAG system (includes web search internally)
         result = rag_system.query(
             query_text=request.query,
             top_k=request.top_k,
