@@ -19,19 +19,21 @@ Seeing this, we built **ComplAInce** - a chatbot that actually knows what it's t
 - **Frontend**: React + Tailwind
 - **Backend**: Flask
 - **LLM Provider**: OpenAI
+- **Database**: Supabase
 - **Vector Database**: Qdrant
 - **OCR**: LlamaIndex
 
 ## Architecture
 
-1. The user uploads the documents that the chatbot will source from. Else, the chatbot is equipped with pre-downloaded regulatory documents relevant to the Manitoban industry, which can be viewed, updated, or deleted from its knowledge base.
+1. The chatbot is equipped with pre-downloaded regulatory documents relevant to the Manitoban industry, which can be viewed, updated, or deleted from its knowledge base. The user can also upload more documents.
 1. Text is extracted from the regulatory documents, broken up into chunks, and embedded into the vector database. Each chunk of text has metadata linking back to which document it came from.
-1. When the user send a query, the query is embedded and compared against the vector database. Queries can be a simple question, a request to be guided through the application process for some permit, or the user can also upload a document such as their business plan and ask if it's compliant with all the regulations.
-1. A RAG pipeline will be run, and the most relevant information chunks from the documents will be matched with the query. Information chunks must be above some certain "relevancy" thresholds.
-1. The LLM will answer the user's inquiry, citing text chunks and explicitly linking which documents they got the information from. The LLM will also scores itself based on a function of the total relevancy of the information chunks it used in its response; if the score is below a certain threshold, it will not give an answer to the user's inquiry.
+1. When the user send a query, the query passes through a classifier layer. Queries can be a simple question, a request to be guided through the application process for some permit, or a request for a checklist for compliance requirements. The query will be deferred to the right AI agent to answer the user's question.
+1. The model will pull the most relevant information chunks from the documents to the query. Information chunks must be above some certain "relevancy" thresholds.
+1. The model will answer the user's inquiry, citing text chunks and explicitly linking which documents they got the information from. Internally, the model scores itself based on a function of the total relevancy of the information chunks it used in its response; if the score is below a certain threshold, it will not give an answer to the user's inquiry.
 1. Users can create new chat sessions, revisit old ones, and delete old sessions.
 1. (Not implemented) Authentication.
 1. (Not implemented) To make sure the regulatory documents are up to date, a daily scraper connected to official provincial/federal regulators will detect if new documents are being put out, and whether they'd replace any old ones. If there is, the next time the user logs in, an alert will be created on whether they'd like to update the knowledge base with this new information; the documents are then inserted into or deleted from the vector database.
+1. (Not implemented) Users can upload their own project specifications and documents, and a local model will verify if the documents are compliant with all the regulations. Local models are important to ensure data soverignty.
 
 ## Team Members
 
@@ -53,7 +55,6 @@ Seeing this, we built **ComplAInce** - a chatbot that actually knows what it's t
 * Links to relevant government resources and forms
 
 **Tech Stack**: LLM integration (Claude API, OpenAI), RAG with regulatory documents
-
 
 ---
 
